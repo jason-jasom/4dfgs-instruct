@@ -1,7 +1,5 @@
 conda activate 4d_scaffold
 
-bash ./scripts/train_n3dv.sh cook_spinach
-
 edited_images_path: generated from https://github.com/juhyeon-kwon/Instruct-4DGS
 
 python edit_3d.py \
