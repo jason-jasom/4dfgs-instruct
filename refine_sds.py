@@ -6,12 +6,16 @@ from argparse import ArgumentParser, Namespace
 import torch
 import torch.nn.functional as F
 from einops import rearrange
+from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from arguments import ModelParams, OptimizationParams, PipelineParams, get_combined_args
 from gaussian_renderer import GaussianModel, prefilter_voxel, render
 from scene import Scene
 from utils.general_utils import safe_state
+from utils.loader_utils import FineSampler
+
+from pytorch_lightning import seed_everything   
 
 try:
     from torch.utils.tensorboard import SummaryWriter
@@ -37,7 +41,42 @@ def background_tensor(dataset):
 def render_view(cam, gaussians, pipe, background, retain_grad=True):
     cam = cam.cuda()
     visible = prefilter_voxel(cam, gaussians, pipe, background)
-    return render(cam, gaussians, pipe, background, visible_mask=visible, retain_grad=retain_grad)
+    render_pkg = render(cam, gaussians, pipe, background, visible_mask=visible, retain_grad=retain_grad)
+    render_pkg["anchor_visible_mask"] = visible
+    return render_pkg
+
+
+def update_anchors_from_render_stats(gaussians, render_pkgs, cams, iteration, opt):
+    if iteration < opt.update_until and iteration > opt.start_stat:
+        activate_da = iteration >= opt.da_start_iter
+        for render_pkg, cam in zip(render_pkgs, cams):
+            gaussians.training_statis(
+                render_pkg["viewspace_points"],
+                render_pkg["neural_opacity"],
+                render_pkg["visibility_filter"],
+                render_pkg["selection_mask"],
+                render_pkg["anchor_visible_mask"],
+                render_pkg["opacity_t"],
+                render_pkg["sigma"],
+                opt.lambda_temporal_sigma,
+                cam.timestamp,
+                opt,
+                activate_da,
+            )
+
+        if iteration > opt.update_from and iteration % opt.update_interval == 0:
+            gaussians.adjust_anchor(
+                opt,
+                check_interval=opt.update_interval,
+                success_threshold=opt.success_threshold,
+                grad_threshold=opt.densify_grad_threshold,
+                min_opacity=opt.min_opacity,
+            )
+    elif iteration == opt.update_until:
+        for attr in ("opacity_accum", "offset_gradient_accum", "offset_time_accum", "offset_denom", "offset_time_denom"):
+            if hasattr(gaussians, attr):
+                delattr(gaussians, attr)
+        torch.cuda.empty_cache()
 
 
 def prepare_output(args):
@@ -69,7 +108,7 @@ def build_ip2p(device, dtype):
 
     ddim_source = "CompVis/stable-diffusion-v1-4"
     ip2p_source = "timbrooks/instruct-pix2pix"
-
+    # seed_everything(20211202)
     tokenizer = CLIPTokenizer.from_pretrained(ip2p_source, subfolder="tokenizer")
     text_encoder = CLIPTextModel.from_pretrained(ip2p_source, subfolder="text_encoder")
     vae = AutoencoderKL.from_pretrained(ip2p_source, subfolder="vae")
@@ -149,6 +188,32 @@ def sds_loss(ip2p, rendered, cond_images, prompt, args, device, dtype):
     return 0.5 * F.mse_loss(noisy_latents.float(), target.float(), reduction="sum") / sequence_length
 
 
+def build_view_loader(train_views, args):
+    if args.custom_sampler:
+        sampler = FineSampler(
+            train_views,
+            repeats_per_frame=args.sampler_repeats_per_frame,
+            history_mix=args.sampler_history_mix,
+        )
+        return DataLoader(
+            train_views,
+            batch_size=args.sequence_length,
+            sampler=sampler,
+            num_workers=args.sampler_workers,
+            collate_fn=list,
+            drop_last=True,
+        )
+
+    return DataLoader(
+        train_views,
+        batch_size=args.sequence_length,
+        shuffle=True,
+        num_workers=args.sampler_workers,
+        collate_fn=list,
+        drop_last=True,
+    )
+
+
 def train_sds(dataset, opt, pipe, args):
     tb_writer = prepare_output(args)
     dataset.dataloader = True
@@ -169,19 +234,31 @@ def train_sds(dataset, opt, pipe, args):
     train_views = scene.getTrainCameras()
     if len(train_views) < args.sequence_length:
         raise RuntimeError(f"Need at least {args.sequence_length} training views for SDS refinement.")
+    view_loader = build_view_loader(train_views, args)
+    view_iter = iter(view_loader)
 
     progress = tqdm(range(1, opt.iterations + 1), desc="SDS refine")
     ema = 0.0
     for iteration in progress:
         gaussians.update_learning_rate(iteration)
-        batch_indices = random.sample(range(len(train_views)), args.sequence_length)
+        try:
+            batch = next(view_iter)
+        except StopIteration:
+            view_iter = iter(view_loader)
+            batch = next(view_iter)
 
         renders = []
         conds = []
-        for view_idx in batch_indices:
-            gt, cam = train_views[view_idx]
-            renders.append(render_view(cam, gaussians, pipe, background, retain_grad=True)["render"].unsqueeze(0))
+        render_pkgs = []
+        stat_cams = []
+        for gt, cam in batch:
+            retain_grad = args.anchor_update and iteration < opt.update_until
+            pkg = render_view(cam, gaussians, pipe, background, retain_grad=retain_grad)
+            renders.append(pkg["render"].unsqueeze(0))
             conds.append(gt[:3].cuda().unsqueeze(0))
+            if retain_grad:
+                render_pkgs.append(pkg)
+                stat_cams.append(cam)
         render_tensor = torch.cat(renders, dim=0).clamp(0, 1)
         cond_tensor = torch.cat(conds, dim=0).clamp(0, 1)
 
@@ -189,6 +266,10 @@ def train_sds(dataset, opt, pipe, args):
         loss.backward()
         if torch.isnan(loss):
             raise RuntimeError("SDS loss became NaN during refinement.")
+
+        if args.anchor_update:
+            with torch.no_grad():
+                update_anchors_from_render_stats(gaussians, render_pkgs, stat_cams, iteration, opt)
 
         if iteration < opt.iterations:
             gaussians.optimizer.step()
@@ -219,6 +300,10 @@ if __name__ == "__main__":
     parser.add_argument("--mlp_dir", default="", type=str, help="Directory containing opacity/cov/color/flow MLP .pt files. Use with --ply_path.")
     parser.add_argument("--prompt", default="", type=str)
     parser.add_argument("--sequence_length", default=4, type=int)
+    parser.add_argument("--custom_sampler", action="store_true", help="Use utils.loader_utils.FineSampler for frame-aware view sampling.")
+    parser.add_argument("--sampler_workers", default=0, type=int)
+    parser.add_argument("--sampler_repeats_per_frame", default=4, type=int)
+    parser.add_argument("--sampler_history_mix", default=2, type=int)
     parser.add_argument("--resize", default=512, type=int)
     parser.add_argument("--diffusion_steps", default=20, type=int)
     parser.add_argument("--num_train_timesteps", default=1000, type=int)
@@ -226,6 +311,8 @@ if __name__ == "__main__":
     parser.add_argument("--t_max", default=0.98, type=float)
     parser.add_argument("--guidance_scale", default=10.5, type=float)
     parser.add_argument("--image_guidance_scale", default=1.2, type=float)
+    parser.add_argument("--anchor_update", dest="anchor_update", action="store_true", default=True, help="Allow SDS refinement to add/prune anchors using train.py's update rules.")
+    parser.add_argument("--disable_anchor_update", dest="anchor_update", action="store_false", help="Freeze the anchor count and only optimize existing parameters.")
     parser.add_argument("--save_iterations", nargs="+", type=int, default=[100, 300, 500, 800])
     parser.add_argument("--log_interval", default=25, type=int)
     parser.add_argument("--quiet", action="store_true")

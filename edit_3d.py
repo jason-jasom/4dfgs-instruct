@@ -15,6 +15,7 @@ from gaussian_renderer import GaussianModel, prefilter_voxel, render
 from scene import Scene
 from utils.general_utils import safe_state
 from utils.image_utils import psnr
+from utils.loader_utils import camera_name_parts
 from utils.loss_utils import l1_loss, ssim
 
 try:
@@ -81,24 +82,6 @@ def update_anchors_from_render_stats(gaussians, render_pkgs, cams, iteration, op
 
 def camera_stem(cam):
     return Path(str(getattr(cam, "image_name", getattr(cam, "uid", "camera")))).stem
-
-
-def camera_name_parts(cam):
-    stem = camera_stem(cam)
-    camera_id = None
-    frame_id = None
-    parts = stem.split("_")
-    if parts and parts[0].startswith("cam"):
-        try:
-            camera_id = int(parts[0][3:])
-        except ValueError:
-            camera_id = None
-    if len(parts) > 1:
-        try:
-            frame_id = int(parts[-1])
-        except ValueError:
-            frame_id = None
-    return stem, camera_id, frame_id
 
 
 def find_target_image(edited_dir, cam, index, pattern):
