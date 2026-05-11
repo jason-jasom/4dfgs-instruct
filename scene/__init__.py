@@ -32,7 +32,17 @@ class Scene:
         self.gaussians = gaussians
         self.white_background = args.white_background
 
-        if load_iteration:
+        direct_ply_path = getattr(args, "ply_path", "")
+        direct_mlp_dir = getattr(args, "mlp_dir", "")
+        direct_checkpoint_dir = getattr(args, "checkpoint_dir", "")
+        if direct_checkpoint_dir:
+            direct_ply_path = direct_ply_path or os.path.join(direct_checkpoint_dir, "point_cloud.ply")
+            direct_mlp_dir = direct_mlp_dir or direct_checkpoint_dir
+
+        if direct_ply_path and direct_mlp_dir and load_iteration is None:
+            self.loaded_iter = "custom"
+            print("Loading trained model from {}".format(direct_mlp_dir))
+        elif load_iteration:
             if load_iteration == -1:
                 self.loaded_iter = searchForMaxIteration(os.path.join(self.model_path, "point_cloud"))
             else:
@@ -84,25 +94,42 @@ class Scene:
 
         # print(f'self.cameras_extent: {self.cameras_extent}')
 
+        skip_test_cameras = getattr(args, "skip_test_cameras", False)
         for resolution_scale in resolution_scales:
             print("Loading Training Cameras")
             self.train_cameras[resolution_scale] = cameraList_from_camInfos(scene_info.train_cameras, resolution_scale, args)
-            print("Loading Test Cameras")
-            self.test_cameras[resolution_scale] = cameraList_from_camInfos(scene_info.test_cameras, resolution_scale, args)
+            if skip_test_cameras:
+                print("Skipping Test Cameras")
+                self.test_cameras[resolution_scale] = []
+            else:
+                print("Loading Test Cameras")
+                self.test_cameras[resolution_scale] = cameraList_from_camInfos(scene_info.test_cameras, resolution_scale, args)
 
         if self.loaded_iter:
-            self.gaussians.load_ply_sparse_gaussian(os.path.join(self.model_path,
-                                                           "point_cloud",
-                                                           "iteration_" + str(self.loaded_iter),
-                                                           "point_cloud.ply"))
-            self.gaussians.load_mlp_checkpoints(os.path.join(self.model_path,
-                                                           "point_cloud",
-                                                           "iteration_" + str(self.loaded_iter)))
+            if direct_ply_path and direct_mlp_dir:
+                self.gaussians.load_ply_sparse_gaussian(direct_ply_path)
+                self.gaussians.load_mlp_checkpoints(direct_mlp_dir)
+            else:
+                self.gaussians.load_ply_sparse_gaussian(os.path.join(self.model_path,
+                                                               "point_cloud",
+                                                               "iteration_" + str(self.loaded_iter),
+                                                               "point_cloud.ply"))
+                self.gaussians.load_mlp_checkpoints(os.path.join(self.model_path,
+                                                               "point_cloud",
+                                                               "iteration_" + str(self.loaded_iter)))
         else:
             self.gaussians.create_from_pcd(scene_info.point_cloud, self.cameras_extent, args.init_voxel_scale)
 
     def save(self, iteration):
         point_cloud_path = os.path.join(self.model_path, "point_cloud/iteration_{}".format(iteration))
+        self.gaussians.save_ply(os.path.join(point_cloud_path, "point_cloud.ply"))
+        self.gaussians.save_mlp_checkpoints(point_cloud_path)
+    def save_3dedit(self, iteration, prompt):
+        point_cloud_path = os.path.join(self.model_path, "point_cloud_3dedit/{}/iteration_{}".format(prompt, iteration))
+        self.gaussians.save_ply(os.path.join(point_cloud_path, "point_cloud.ply"))
+        self.gaussians.save_mlp_checkpoints(point_cloud_path)
+    def save_refine(self, iteration, prompt):
+        point_cloud_path = os.path.join(self.model_path, "point_cloud_refine/{}/iteration_{}".format(prompt, iteration))
         self.gaussians.save_ply(os.path.join(point_cloud_path, "point_cloud.ply"))
         self.gaussians.save_mlp_checkpoints(point_cloud_path)
 

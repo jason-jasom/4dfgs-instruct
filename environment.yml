@@ -4,16 +4,18 @@ channels:
   - pyg
   - conda-forge
   - defaults
+
 dependencies:
   - cudatoolkit=11.6
-  - plyfile=0.8.1
-  - python=3.7.13
-  - pip=22.3.1
-  - pytorch=1.12.1
-  - torchaudio=0.12.1
-  - torchvision=0.13.1
+  - plyfile=1.0.3
+  - python=3.8.20
+  - pip=24.2
+  - pytorch=2.0.1
+  - torchaudio=2.0.2
+  - torchvision=0.15.2
   - pytorch-scatter
   - tqdm
+
   - pip:
     - einops
     - natsort

@@ -1,0 +1,25 @@
+conda activate 4d_scaffold
+
+bash ./scripts/train_n3dv.sh cook_spinach
+
+edited_images_path: generated from https://github.com/juhyeon-kwon/Instruct-4DGS
+
+python edit_3d.py \
+  -m outputs/N3DV/cook_spinach/baseline/2026-05-11_00-08-57 \
+  --checkpoint_dir outputs/N3DV/cook_spinach/baseline/2026-05-11_00-08-57/point_cloud/iteration_30000 \
+  --edited_images_path data/N3DV/cook_spinach/painting \
+  --edited_pattern "edited_painting_original_time{frame_id}_{camera_id}.png" \
+  --prompt "Make it look like a fauvism painting" \
+  --iterations 1000 \
+  --save_iterations 500 1000
+
+python refine_sds.py \
+  -m outputs/N3DV/cook_spinach/baseline/2026-05-11_00-08-57 \
+  --checkpoint_dir "outputs/N3DV/cook_spinach/baseline/2026-05-11_00-08-57/point_cloud_3dedit/Make it look like a fauvism painting/iteration_1000" \
+  --prompt "Make it look like a fauvism painting" \
+  --iterations 800
+
+python render_edited4d.py \
+  -m outputs/N3DV/cook_spinach/baseline/2026-05-11_00-08-57 \
+  --checkpoint_dir "outputs/N3DV/cook_spinach/baseline/2026-05-11_00-08-57/point_cloud_refine/Make it look like a fauvism painting/iteration_800" \
+  --skip_train

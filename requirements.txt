@@ -1,0 +1,10 @@
+transformers==4.31.0
+accelerate==0.21.0
+diffusers==0.19.0
+xformers==0.0.22
+huggingface-hub==0.16.4
+mmengine==0.10.7
+mmcv==1.6.0
+einops==0.6.1
+pytorch-lightning==2.1.0
+moviepy
