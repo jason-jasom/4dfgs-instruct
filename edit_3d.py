@@ -41,7 +41,42 @@ def background_tensor(dataset):
 def render_view(cam, gaussians, pipe, background, retain_grad=True):
     cam = cam.cuda()
     visible = prefilter_voxel(cam, gaussians, pipe, background)
-    return render(cam, gaussians, pipe, background, visible_mask=visible, retain_grad=retain_grad)
+    render_pkg = render(cam, gaussians, pipe, background, visible_mask=visible, retain_grad=retain_grad)
+    render_pkg["anchor_visible_mask"] = visible
+    return render_pkg
+
+
+def update_anchors_from_render_stats(gaussians, render_pkgs, cams, iteration, opt):
+    if iteration < opt.update_until and iteration > opt.start_stat:
+        activate_da = iteration >= opt.da_start_iter
+        for render_pkg, cam in zip(render_pkgs, cams):
+            gaussians.training_statis(
+                render_pkg["viewspace_points"],
+                render_pkg["neural_opacity"],
+                render_pkg["visibility_filter"],
+                render_pkg["selection_mask"],
+                render_pkg["anchor_visible_mask"],
+                render_pkg["opacity_t"],
+                render_pkg["sigma"],
+                opt.lambda_temporal_sigma,
+                cam.timestamp,
+                opt,
+                activate_da,
+            )
+
+        if iteration > opt.update_from and iteration % opt.update_interval == 0:
+            gaussians.adjust_anchor(
+                opt,
+                check_interval=opt.update_interval,
+                success_threshold=opt.success_threshold,
+                grad_threshold=opt.densify_grad_threshold,
+                min_opacity=opt.min_opacity,
+            )
+    elif iteration == opt.update_until:
+        for attr in ("opacity_accum", "offset_gradient_accum", "offset_time_accum", "offset_denom", "offset_time_denom"):
+            if hasattr(gaussians, attr):
+                delattr(gaussians, attr)
+        torch.cuda.empty_cache()
 
 
 def camera_stem(cam):
@@ -108,7 +143,6 @@ def build_target_pairs(train_views, args):
             # if args.fallback_original:
             #     pairs.append((idx, gt, cam, None))
         else:
-            print(target_path)
             pairs.append((idx, gt, cam, target_path))
 
     if not pairs:
@@ -190,8 +224,11 @@ def train_edit(dataset, opt, pipe, args):
 
         images = []
         targets = []
+        render_pkgs = []
+        stat_cams = []
         for idx, gt, cam, target_path in batch:
-            pkg = render_view(cam, gaussians, pipe, background, retain_grad=True)
+            retain_grad = args.anchor_update and iteration < opt.update_until
+            pkg = render_view(cam, gaussians, pipe, background, retain_grad=retain_grad)
             image = pkg["render"]
             if target_path is None:
                 target = gt.cuda()
@@ -199,6 +236,9 @@ def train_edit(dataset, opt, pipe, args):
                 target = load_target(target_path, image.shape[-2:])
             images.append(image.unsqueeze(0))
             targets.append(target[:3].unsqueeze(0))
+            if retain_grad:
+                render_pkgs.append(pkg)
+                stat_cams.append(cam)
 
         image_tensor = torch.cat(images, dim=0)
         target_tensor = torch.cat(targets, dim=0)
@@ -208,6 +248,10 @@ def train_edit(dataset, opt, pipe, args):
 
         if torch.isnan(loss):
             raise RuntimeError("Loss became NaN during editing.")
+
+        if args.anchor_update:
+            with torch.no_grad():
+                update_anchors_from_render_stats(gaussians, render_pkgs, stat_cams, iteration, opt)
 
         if iteration < opt.iterations:
             gaussians.optimizer.step()
@@ -238,6 +282,8 @@ if __name__ == "__main__":
     parser.add_argument("--edited_images_path", default="", type=str, help="Directory containing edited RGB targets.")
     parser.add_argument("--edited_pattern", default="", type=str, help="Optional pattern, e.g. '{image_name}.png' or '{index:05d}.png'.")
     parser.add_argument("--batch_size", default=1, type=int)
+    parser.add_argument("--anchor_update", dest="anchor_update", action="store_true", default=True, help="Allow edit training to add/prune anchors using train.py's update rules.")
+    parser.add_argument("--disable_anchor_update", dest="anchor_update", action="store_false", help="Freeze the anchor count and only optimize existing parameters.")
     parser.add_argument("--include_test_targets", action="store_true", default=False, help="Also use test camera metadata when matching edited targets.")
     parser.add_argument("--train_only_targets", dest="include_test_targets", action="store_false", help="Use train camera metadata only.")
     parser.add_argument("--fallback_original", action="store_true", help="Use original training images when an edited target is missing.")
