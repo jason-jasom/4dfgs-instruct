@@ -36,15 +36,18 @@ def render_view(cam, gaussians, pipe, background, color_mode="rgb"):
     return image.clamp(0, 1)
 
 
-def render_split(model_path, name, iteration, views, gaussians, pipe, background, fps, color_mode):
+def render_split(model_path, name, iteration, views, gaussians, pipe, background, fps, color_mode, output_name, video_name):
     if not views:
         print(f"No {name} cameras to render.")
         return
-    out_dir = os.path.join(model_path, name, f"edited_{iteration}")
+    run_name = output_name or f"edited_{iteration}"
+    out_dir = os.path.join(model_path, name, run_name)
     render_dir = os.path.join(out_dir, "renders")
     os.makedirs(render_dir, exist_ok=True)
 
-    video_path = os.path.join(out_dir, "renders.mp4")
+    if not video_name.endswith(".mp4"):
+        video_name = f"{video_name}.mp4"
+    video_path = os.path.join(out_dir, video_name)
     frames = []
 
     times = []
@@ -65,7 +68,7 @@ def render_split(model_path, name, iteration, views, gaussians, pipe, background
     print(f"Saved {video_path}")
 
 
-def render_sets(dataset, iteration, pipe, skip_train, skip_test, fps, color_mode):
+def render_sets(dataset, iteration, pipe, skip_train, skip_test, fps, color_mode, output_name, video_name):
     with torch.no_grad():
         gaussians = make_gaussians(dataset)
         direct_model = getattr(dataset, "checkpoint_dir", "") or (getattr(dataset, "ply_path", "") and getattr(dataset, "mlp_dir", ""))
@@ -75,9 +78,9 @@ def render_sets(dataset, iteration, pipe, skip_train, skip_test, fps, color_mode
         background = background_tensor(dataset)
 
         if not skip_train:
-            render_split(dataset.model_path, "train", scene.loaded_iter, scene.getTrainCameras(), gaussians, pipe, background, fps, color_mode)
+            render_split(dataset.model_path, "train", scene.loaded_iter, scene.getTrainCameras(), gaussians, pipe, background, fps, color_mode, output_name, video_name)
         if not skip_test:
-            render_split(dataset.model_path, "test", scene.loaded_iter, scene.getTestCameras(), gaussians, pipe, background, fps, color_mode)
+            render_split(dataset.model_path, "test", scene.loaded_iter, scene.getTestCameras(), gaussians, pipe, background, fps, color_mode, output_name, video_name)
 
 
 if __name__ == "__main__":
@@ -91,6 +94,8 @@ if __name__ == "__main__":
     parser.add_argument("--skip_test", action="store_true")
     parser.add_argument("--fps", default=30, type=int)
     parser.add_argument("--color_mode", default="rgb", choices=["rgb", "flow", "sigma", "mask"])
+    parser.add_argument("--output_name", default="", type=str, help="Output subdirectory name under train/test. Default: edited_<iteration>.")
+    parser.add_argument("--video_name", default="renders.mp4", type=str, help="Output mp4 filename. .mp4 is appended if omitted.")
     parser.add_argument("--quiet", action="store_true")
     args = get_combined_args(parser)
 
@@ -99,4 +104,4 @@ if __name__ == "__main__":
     dataset = model.extract(args)
     dataset.checkpoint_dir = args.checkpoint_dir
     dataset.mlp_dir = args.mlp_dir
-    render_sets(dataset, args.iteration, pipeline.extract(args), args.skip_train, args.skip_test, args.fps, args.color_mode)
+    render_sets(dataset, args.iteration, pipeline.extract(args), args.skip_train, args.skip_test, args.fps, args.color_mode, args.output_name, args.video_name)

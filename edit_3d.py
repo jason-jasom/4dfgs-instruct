@@ -39,6 +39,18 @@ def background_tensor(dataset):
     return torch.tensor([1, 1, 1] if dataset.white_background else [0, 0, 0], dtype=torch.float32, device="cuda")
 
 
+def freeze_optimizer_groups(gaussians, prefixes):
+    frozen = []
+    for group in gaussians.optimizer.param_groups:
+        name = group.get("name", "")
+        if any(name.startswith(prefix) for prefix in prefixes):
+            group["lr"] = 0.0
+            frozen.append(name)
+            for param in group["params"]:
+                param.requires_grad_(False)
+    return frozen
+
+
 def render_view(cam, gaussians, pipe, background, retain_grad=True):
     cam = cam.cuda()
     visible = prefilter_voxel(cam, gaussians, pipe, background)
@@ -189,6 +201,9 @@ def train_edit(dataset, opt, pipe, args):
     load_iteration = None if direct_model and args.iteration == -1 else args.iteration
     scene = Scene(dataset, gaussians, load_iteration=load_iteration, shuffle=False)
     gaussians.training_setup(opt)
+    frozen_groups = freeze_optimizer_groups(gaussians, ("mlp_",)) if args.freeze_mlp else []
+    if frozen_groups:
+        print("Frozen optimizer groups:", ", ".join(frozen_groups))
     gaussians.train()
 
     background = background_tensor(dataset)
@@ -203,6 +218,8 @@ def train_edit(dataset, opt, pipe, args):
     ema = 0.0
     for iteration in progress:
         gaussians.update_learning_rate(iteration)
+        if args.freeze_mlp:
+            freeze_optimizer_groups(gaussians, ("mlp_",))
         batch = random.sample(target_pairs, min(args.batch_size, len(target_pairs)))
 
         images = []
@@ -265,6 +282,7 @@ if __name__ == "__main__":
     parser.add_argument("--edited_images_path", default="", type=str, help="Directory containing edited RGB targets.")
     parser.add_argument("--edited_pattern", default="", type=str, help="Optional pattern, e.g. '{image_name}.png' or '{index:05d}.png'.")
     parser.add_argument("--batch_size", default=1, type=int)
+    parser.add_argument("--freeze_mlp", action="store_true", help="Freeze all MLP optimizer groups during editing.")
     parser.add_argument("--anchor_update", dest="anchor_update", action="store_true", default=True, help="Allow edit training to add/prune anchors using train.py's update rules.")
     parser.add_argument("--disable_anchor_update", dest="anchor_update", action="store_false", help="Freeze the anchor count and only optimize existing parameters.")
     parser.add_argument("--include_test_targets", action="store_true", default=False, help="Also use test camera metadata when matching edited targets.")
