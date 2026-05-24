@@ -6,21 +6,13 @@ python edit_3d.py \
   --edited_pattern "edited_painting_original_time{frame_id}_{camera_id}.png" \
   --prompt "Make it look like a fauvism painting" \
   --iterations 1000 \
-  --save_iterations 500 1000 \
-  --anchor_update \
-  --start_stat 100 \
-  --update_from 200 \
-  --update_interval 50 \
-  --update_until 801 \
-  --freeze_mlp
+  --save_iterations 500 1000 
 
 python refine_sds.py \
   -m outputs/N3DV/cook_spinach/baseline/2026-05-12_15-56-11 \
   --checkpoint_dir "outputs/N3DV/cook_spinach/baseline/2026-05-12_15-56-11/point_cloud_3dedit/Make it look like a fauvism painting/iteration_1000" \
   --prompt "Make it look like a fauvism painting" \
-  --iterations 800 \
-  --disable_anchor_update \
-  --freeze_mlp
+  --iterations 800 
 
 python render_edited4d.py \
   -m outputs/N3DV/cook_spinach/baseline/2026-05-12_15-56-11 \
@@ -38,21 +30,13 @@ python edit_3d.py \
   --edited_pattern "edited_sculpture_original_time{frame_id}_{camera_id}.png" \
   --prompt "Make it look like a sculpture" \
   --iterations 1000 \
-  --save_iterations 500 1000 \
-  --anchor_update \
-  --start_stat 100 \
-  --update_from 200 \
-  --update_interval 50 \
-  --update_until 801 \
-  --freeze_mlp
+  --save_iterations 500 1000 
 
 python refine_sds.py \
   -m outputs/N3DV/cook_spinach/baseline/2026-05-12_15-56-11 \
   --checkpoint_dir "outputs/N3DV/cook_spinach/baseline/2026-05-12_15-56-11/point_cloud_3dedit/Make it look like a sculpture/iteration_1000" \
   --prompt "Make it look like a sculpture" \
-  --iterations 800 \
-  --disable_anchor_update \
-  --freeze_mlp
+  --iterations 800 
 
 python render_edited4d.py \
   -m outputs/N3DV/cook_spinach/baseline/2026-05-12_15-56-11 \
@@ -70,22 +54,14 @@ python edit_3d.py \
   --edited_pattern "edited_woman_original_time{frame_id}_{camera_id}.png" \
   --prompt "Turn the man into a woman" \
   --iterations 1000 \
-  --save_iterations 500 1000 \
-  --anchor_update \
-  --start_stat 100 \
-  --update_from 200 \
-  --update_interval 50 \
-  --update_until 801 \
-  --freeze_mlp
+  --save_iterations 500 1000 
 
 python refine_sds.py \
   -m outputs/N3DV/cook_spinach/baseline/2026-05-12_15-56-11 \
   --checkpoint_dir "outputs/N3DV/cook_spinach/baseline/2026-05-12_15-56-11/point_cloud_3dedit/Turn the man into a woman/iteration_1000" \
   --prompt "Turn the man into a woman" \
-  --iterations 800 \
-  --disable_anchor_update \
-  --freeze_mlp
-
+  --iterations 800 
+  
 python render_edited4d.py \
   -m outputs/N3DV/cook_spinach/baseline/2026-05-12_15-56-11 \
   --checkpoint_dir "outputs/N3DV/cook_spinach/baseline/2026-05-12_15-56-11/point_cloud_refine/Turn the man into a woman/iteration_800" \

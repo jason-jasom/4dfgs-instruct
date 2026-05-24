@@ -51,6 +51,23 @@ def freeze_optimizer_groups(gaussians, prefixes):
     return frozen
 
 
+def configure_3dgs_only_training(gaussians, args):
+    args.anchor_update = False
+    frozen = freeze_optimizer_groups(gaussians, ("mlp_", "embedding_appearance"))
+    print("3DGS-only edit: frozen MLP/appearance groups; anchor growing/pruning disabled.")
+    if frozen:
+        print("Frozen optimizer groups:", ", ".join(frozen))
+
+
+def zero_temporal_gradients(gaussians):
+    if gaussians._anchor.grad is not None and gaussians._anchor.grad.shape[-1] > 3:
+        gaussians._anchor.grad[:, 3] = 0
+    if gaussians._offset.grad is not None and gaussians._offset.grad.shape[-1] > 3:
+        gaussians._offset.grad[:, :, 3] = 0
+    if gaussians._scaling.grad is not None and gaussians._scaling.grad.shape[-1] > 6:
+        gaussians._scaling.grad[:, 6:] = 0
+
+
 def render_view(cam, gaussians, pipe, background, retain_grad=True):
     cam = cam.cuda()
     visible = prefilter_voxel(cam, gaussians, pipe, background)
@@ -201,9 +218,7 @@ def train_edit(dataset, opt, pipe, args):
     load_iteration = None if direct_model and args.iteration == -1 else args.iteration
     scene = Scene(dataset, gaussians, load_iteration=load_iteration, shuffle=False)
     gaussians.training_setup(opt)
-    frozen_groups = freeze_optimizer_groups(gaussians, ("mlp_",)) if args.freeze_mlp else []
-    if frozen_groups:
-        print("Frozen optimizer groups:", ", ".join(frozen_groups))
+    configure_3dgs_only_training(gaussians, args)
     gaussians.train()
 
     background = background_tensor(dataset)
@@ -218,8 +233,7 @@ def train_edit(dataset, opt, pipe, args):
     ema = 0.0
     for iteration in progress:
         gaussians.update_learning_rate(iteration)
-        if args.freeze_mlp:
-            freeze_optimizer_groups(gaussians, ("mlp_",))
+        freeze_optimizer_groups(gaussians, ("mlp_", "embedding_appearance"))
         batch = random.sample(target_pairs, min(args.batch_size, len(target_pairs)))
 
         images = []
@@ -248,6 +262,8 @@ def train_edit(dataset, opt, pipe, args):
 
         if torch.isnan(loss):
             raise RuntimeError("Loss became NaN during editing.")
+
+        zero_temporal_gradients(gaussians)
 
         if args.anchor_update:
             with torch.no_grad():
@@ -282,9 +298,9 @@ if __name__ == "__main__":
     parser.add_argument("--edited_images_path", default="", type=str, help="Directory containing edited RGB targets.")
     parser.add_argument("--edited_pattern", default="", type=str, help="Optional pattern, e.g. '{image_name}.png' or '{index:05d}.png'.")
     parser.add_argument("--batch_size", default=1, type=int)
-    parser.add_argument("--freeze_mlp", action="store_true", help="Freeze all MLP optimizer groups during editing.")
-    parser.add_argument("--anchor_update", dest="anchor_update", action="store_true", default=True, help="Allow edit training to add/prune anchors using train.py's update rules.")
-    parser.add_argument("--disable_anchor_update", dest="anchor_update", action="store_false", help="Freeze the anchor count and only optimize existing parameters.")
+    parser.add_argument("--freeze_mlp", action="store_true", default=True, help="Deprecated: MLPs are always frozen in 3DGS-only editing.")
+    parser.add_argument("--anchor_update", dest="anchor_update", action="store_true", default=False, help="Deprecated: anchor growing/pruning is disabled in 3DGS-only editing.")
+    parser.add_argument("--disable_anchor_update", dest="anchor_update", action="store_false", help="Keep anchor count fixed.")
     parser.add_argument("--include_test_targets", action="store_true", default=False, help="Also use test camera metadata when matching edited targets.")
     parser.add_argument("--train_only_targets", dest="include_test_targets", action="store_false", help="Use train camera metadata only.")
     parser.add_argument("--fallback_original", action="store_true", help="Use original training images when an edited target is missing.")

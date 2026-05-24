@@ -50,6 +50,23 @@ def freeze_optimizer_groups(gaussians, prefixes):
     return frozen
 
 
+def configure_3dgs_only_training(gaussians, args):
+    args.anchor_update = False
+    frozen = freeze_optimizer_groups(gaussians, ("mlp_", "embedding_appearance"))
+    print("3DGS-only SDS refine: frozen MLP/appearance groups; anchor growing/pruning disabled.")
+    if frozen:
+        print("Frozen optimizer groups:", ", ".join(frozen))
+
+
+def zero_temporal_gradients(gaussians):
+    if gaussians._anchor.grad is not None and gaussians._anchor.grad.shape[-1] > 3:
+        gaussians._anchor.grad[:, 3] = 0
+    if gaussians._offset.grad is not None and gaussians._offset.grad.shape[-1] > 3:
+        gaussians._offset.grad[:, :, 3] = 0
+    if gaussians._scaling.grad is not None and gaussians._scaling.grad.shape[-1] > 6:
+        gaussians._scaling.grad[:, 6:] = 0
+
+
 def render_view(cam, gaussians, pipe, background, retain_grad=True):
     cam = cam.cuda()
     visible = prefilter_voxel(cam, gaussians, pipe, background)
@@ -237,9 +254,7 @@ def train_sds(dataset, opt, pipe, args):
     load_iteration = None if direct_model and args.iteration == -1 else args.iteration
     scene = Scene(dataset, gaussians, load_iteration=load_iteration, shuffle=False)
     gaussians.training_setup(opt)
-    frozen_groups = freeze_optimizer_groups(gaussians, ("mlp_",)) if args.freeze_mlp else []
-    if frozen_groups:
-        print("Frozen optimizer groups:", ", ".join(frozen_groups))
+    configure_3dgs_only_training(gaussians, args)
     gaussians.train()
 
     device = torch.device("cuda:0")
@@ -256,8 +271,7 @@ def train_sds(dataset, opt, pipe, args):
     ema = 0.0
     for iteration in progress:
         gaussians.update_learning_rate(iteration)
-        if args.freeze_mlp:
-            freeze_optimizer_groups(gaussians, ("mlp_",))
+        freeze_optimizer_groups(gaussians, ("mlp_", "embedding_appearance"))
         try:
             batch = next(view_iter)
         except StopIteration:
@@ -283,6 +297,8 @@ def train_sds(dataset, opt, pipe, args):
         loss.backward()
         if torch.isnan(loss):
             raise RuntimeError("SDS loss became NaN during refinement.")
+
+        zero_temporal_gradients(gaussians)
 
         if args.anchor_update:
             with torch.no_grad():
@@ -328,9 +344,9 @@ if __name__ == "__main__":
     parser.add_argument("--t_max", default=0.98, type=float)
     parser.add_argument("--guidance_scale", default=10.5, type=float)
     parser.add_argument("--image_guidance_scale", default=1.2, type=float)
-    parser.add_argument("--freeze_mlp", action="store_true", help="Freeze all MLP optimizer groups during SDS refinement.")
-    parser.add_argument("--anchor_update", dest="anchor_update", action="store_true", default=True, help="Allow SDS refinement to add/prune anchors using train.py's update rules.")
-    parser.add_argument("--disable_anchor_update", dest="anchor_update", action="store_false", help="Freeze the anchor count and only optimize existing parameters.")
+    parser.add_argument("--freeze_mlp", action="store_true", default=True, help="Deprecated: MLPs are always frozen in 3DGS-only SDS refinement.")
+    parser.add_argument("--anchor_update", dest="anchor_update", action="store_true", default=False, help="Deprecated: anchor growing/pruning is disabled in 3DGS-only SDS refinement.")
+    parser.add_argument("--disable_anchor_update", dest="anchor_update", action="store_false", help="Keep anchor count fixed.")
     parser.add_argument("--save_iterations", nargs="+", type=int, default=[100, 300, 500, 800])
     parser.add_argument("--log_interval", default=25, type=int)
     parser.add_argument("--quiet", action="store_true")
