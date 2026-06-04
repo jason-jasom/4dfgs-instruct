@@ -52,9 +52,9 @@ def freeze_optimizer_groups(gaussians, prefixes):
 
 
 def configure_3dgs_only_training(gaussians, args):
-    args.anchor_update = False
     frozen = freeze_optimizer_groups(gaussians, ("mlp_", "embedding_appearance"))
-    print("3DGS-only edit: frozen MLP/appearance groups; anchor growing/pruning disabled.")
+    anchor_state = "enabled" if args.anchor_update else "disabled"
+    print(f"3DGS-only edit: frozen MLP/appearance groups; anchor growing/pruning {anchor_state}.")
     if frozen:
         print("Frozen optimizer groups:", ", ".join(frozen))
 
@@ -299,8 +299,8 @@ if __name__ == "__main__":
     parser.add_argument("--edited_pattern", default="", type=str, help="Optional pattern, e.g. '{image_name}.png' or '{index:05d}.png'.")
     parser.add_argument("--batch_size", default=1, type=int)
     parser.add_argument("--freeze_mlp", action="store_true", default=True, help="Deprecated: MLPs are always frozen in 3DGS-only editing.")
-    parser.add_argument("--anchor_update", dest="anchor_update", action="store_true", default=False, help="Deprecated: anchor growing/pruning is disabled in 3DGS-only editing.")
-    parser.add_argument("--disable_anchor_update", dest="anchor_update", action="store_false", help="Keep anchor count fixed.")
+    parser.add_argument("--anchor_update", dest="anchor_update", action="store_true", default=False, help="Allow edit training to add/prune anchors using train.py's update rules.")
+    parser.add_argument("--disable_anchor_update", dest="anchor_update", action="store_false", help="Freeze the anchor count and only optimize existing parameters.")
     parser.add_argument("--include_test_targets", action="store_true", default=False, help="Also use test camera metadata when matching edited targets.")
     parser.add_argument("--train_only_targets", dest="include_test_targets", action="store_false", help="Use train camera metadata only.")
     parser.add_argument("--fallback_original", action="store_true", help="Use original training images when an edited target is missing.")

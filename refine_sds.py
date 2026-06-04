@@ -51,9 +51,9 @@ def freeze_optimizer_groups(gaussians, prefixes):
 
 
 def configure_3dgs_only_training(gaussians, args):
-    args.anchor_update = False
     frozen = freeze_optimizer_groups(gaussians, ("mlp_", "embedding_appearance"))
-    print("3DGS-only SDS refine: frozen MLP/appearance groups; anchor growing/pruning disabled.")
+    anchor_state = "enabled" if args.anchor_update else "disabled"
+    print(f"3DGS-only SDS refine: frozen MLP/appearance groups; anchor growing/pruning {anchor_state}.")
     if frozen:
         print("Frozen optimizer groups:", ", ".join(frozen))
 
@@ -345,8 +345,8 @@ if __name__ == "__main__":
     parser.add_argument("--guidance_scale", default=10.5, type=float)
     parser.add_argument("--image_guidance_scale", default=1.2, type=float)
     parser.add_argument("--freeze_mlp", action="store_true", default=True, help="Deprecated: MLPs are always frozen in 3DGS-only SDS refinement.")
-    parser.add_argument("--anchor_update", dest="anchor_update", action="store_true", default=False, help="Deprecated: anchor growing/pruning is disabled in 3DGS-only SDS refinement.")
-    parser.add_argument("--disable_anchor_update", dest="anchor_update", action="store_false", help="Keep anchor count fixed.")
+    parser.add_argument("--anchor_update", dest="anchor_update", action="store_true", default=False, help="Allow SDS refinement to add/prune anchors using train.py's update rules.")
+    parser.add_argument("--disable_anchor_update", dest="anchor_update", action="store_false", help="Freeze the anchor count and only optimize existing parameters.")
     parser.add_argument("--save_iterations", nargs="+", type=int, default=[100, 300, 500, 800])
     parser.add_argument("--log_interval", default=25, type=int)
     parser.add_argument("--quiet", action="store_true")

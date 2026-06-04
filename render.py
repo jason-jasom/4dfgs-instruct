@@ -80,7 +80,7 @@ def render_set(model_path, name, iteration, views, gaussians, pipeline, backgrou
 
             torch.cuda.synchronize(); t0 = time.time()
             voxel_visible_mask = prefilter_voxel(viewpoint_cam, gaussians, pipeline, background)
-            render_pkg = render(viewpoint_cam, gaussians, pipeline, background, visible_mask=voxel_visible_mask, use_cache=True)
+            render_pkg = render(viewpoint_cam, gaussians, pipeline, background, visible_mask=voxel_visible_mask, save_cache=(idx == 0))
             torch.cuda.synchronize(); t1 = time.time()
             
             t_list.append(t1-t0)
