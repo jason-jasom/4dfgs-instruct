@@ -108,6 +108,25 @@ bash ./scripts/train_n3dv.sh cook_spinach
 
 This script will store the log (with running-time code) into ```outputs/dataset_name/scene_name/exp_name/cur_time``` automatically.
 
+## Evaluation
+
+We've integrated the rendering and metrics calculation process into the training code. So, when completing training, the ```rendering results```, ```fps``` and ```quality metrics``` will be printed automatically. And the rendering results will be save in the log dir. Mind that the ```fps``` is roughly estimated by 
+
+```
+torch.cuda.synchronize();t_start=time.time()
+rendering...
+torch.cuda.synchronize();t_end=time.time()
+```
+
+which may differ somewhat from the original 3D-GS, but it does not affect the analysis.
+
+Meanwhile, we keep the manual rendering function with a similar usage of the counterpart in [3D-GS](https://github.com/graphdeco-inria/gaussian-splatting), one can run it by 
+
+```
+python render.py -m <path to trained model> # Generate renderings and measure fps
+python metrics.py -m <path to trained model> # Compute error metrics on renderings
+```
+
 ## Instruction Edit
 
 1. Install the packages required by [Instruct-4DGS](https://github.com/CHINHUICHU/Instruct-4DGS/tree/test).
@@ -152,31 +171,6 @@ python render_edited4d.py \
   --output_name <render output folder name> \
   --video_name <output video filename, e.g. edited.mp4> \
   --skip_train
-```
-
-You can also run all examples defined in ```script.sh``` directly:
-
-```
-bash script.sh
-```
-
-## Evaluation
-
-We've integrated the rendering and metrics calculation process into the training code. So, when completing training, the ```rendering results```, ```fps``` and ```quality metrics``` will be printed automatically. And the rendering results will be save in the log dir. Mind that the ```fps``` is roughly estimated by 
-
-```
-torch.cuda.synchronize();t_start=time.time()
-rendering...
-torch.cuda.synchronize();t_end=time.time()
-```
-
-which may differ somewhat from the original 3D-GS, but it does not affect the analysis.
-
-Meanwhile, we keep the manual rendering function with a similar usage of the counterpart in [3D-GS](https://github.com/graphdeco-inria/gaussian-splatting), one can run it by 
-
-```
-python render.py -m <path to trained model> # Generate renderings and measure fps
-python metrics.py -m <path to trained model> # Compute error metrics on renderings
 ```
 
 ## Contact
