@@ -8,7 +8,7 @@ Install the packages required by [Instruct-4DGS](https://github.com/CHINHUICHU/I
 
 ## 3. Generate edited images with Instruct-4DGS
 
-Use Instruct-4DGS to generate edited multi-view images:
+Use [Instruct-4DGS](https://github.com/CHINHUICHU/Instruct-4DGS/blob/test/README_instruct4dgs.md) to generate edited multi-view images:
 
 ```
 python ./ip2p_models/multiview_edit.py \
