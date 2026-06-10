@@ -1,6 +1,6 @@
 # Instruction Edit
 
-## 1. Train 4D-scaffold-GS model as [here](README_4d_scaffold.mdd)
+## 1. Train 4D-scaffold-GS model as [here](README_4d_scaffold.md)
 
 ## 2. Install Instruct-4DGS packages 
 
